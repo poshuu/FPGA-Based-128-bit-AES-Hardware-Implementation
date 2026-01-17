@@ -1,0 +1,66 @@
+module AES_tb;  
+  
+    // Testbench signals  
+    reg         clk;  
+    reg         rst_n;  
+    reg         start;  
+    reg  [127:0] plaintext;  
+    reg  [127:0] key;  
+    wire [127:0] ciphertext;  
+    wire        done;  
+  
+    // Instantiate DUT  
+  AES dut (  
+        .clk(clk),  
+        .rst_n(rst_n),  
+        .start(start),  
+        .plaintext(plaintext),  
+        .key(key),  
+        .ciphertext(ciphertext),  
+        .done(done)  
+    );  
+  
+    // Clock generator  
+    initial begin  
+        clk = 0;  
+        forever #5 clk = ~clk; // 100 MHz clock  
+    end  
+  
+    // Test vectors from FIPS-197 (AES-128 example)  
+    localparam [127:0] PLAINTEXT = 128'h00112233445566778899aabbccddeeff;  
+    localparam [127:0] KEY        = 128'h000102030405060708090a0b0c0d0e0f;  
+    localparam [127:0] EXPECTED   = 128'h69c4e0d86a7b0430d8cdb78070b4c55a;  
+  
+    // Main stimulus  
+    initial begin  
+        $display("AES-128 Encryption Testbench");  
+        rst_n = 0;  
+        start = 0;  
+        plaintext = PLAINTEXT;  
+        key = KEY;  
+  
+        // Apply reset  
+        #20;  
+        rst_n = 1;  
+        #20;  
+  
+        // Start encryption  
+        $display("[%0t] Starting AES encryption...", $time);  
+        start = 1;  
+        #10;  
+        start = 0;  
+  
+        // Wait for done signal  
+        wait(done);  
+        #10;  
+        $display("[%0t] Encryption completed.", $time);  
+        $display("Ciphertext = %032h", ciphertext);  
+        $display("Expected   = %032h", EXPECTED);  
+        if (ciphertext === EXPECTED)  
+        $display("AES encryption PASSED!");  
+        else  
+        $display("AES encryption FAILED!");  
+        #20;  
+        $finish;  
+        end  
+        endmodule 
