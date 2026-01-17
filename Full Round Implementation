@@ -1,0 +1,87 @@
+`timescale 1ns / 1ps  
+module Part4FullRound();  
+// Clock / Reset for sequential KeyExpansion  
+  reg clk, rst_n, start;  
+    initial begin  
+        clk = 0;  
+        forever #5 clk = ~clk;  
+    end  
+  
+    // Inputs  
+    reg [127:0] plaintext;  
+    reg [127:0] cipher_key;  
+    wire done;  
+  
+    // Key Expansion Output Storage  
+    // 44 words * 32 bits = 1408 bits total.  
+    wire [127:0] round_keys [0:10];  
+  
+    // Instantiate KeyExpansion  
+    KeyExpansion KE (  
+        .clk(clk),  
+        .rst_n(rst_n),  
+        .start(start),  
+        .key_in(cipher_key),  
+        .done(done)  
+    );  
+  
+    // Instantiate AES Round Modules  
+    wire [127:0] state_sub, state_shift, state_mix, state_add;  
+    reg  [127:0] round_key_sel;  
+  
+    // SubBytes  
+    genvar i;  
+    generate  
+        for (i = 0; i < 16; i = i + 1) begin : BYTE_SUB  
+            wire [7:0] b_in  = plaintext[8*i +: 8];  
+            wire [7:0] b_out;  
+            sBox SBOX (.byteIn(b_in), .byteOut(b_out));  
+            assign state_sub[8*i +: 8] = b_out;  
+        end 
+     endgenerate  
+  
+    // ShiftRows  
+    ShiftRows SR (.state_in(state_sub), .state_out(state_shift));  
+  
+    // MixColumns (4 columns × 32-bit each)  
+    wire [31:0] mix_in [0:3], mix_out [0:3];  
+    generate  
+        for (i = 0; i < 4; i = i + 1) begin : MIX_LOOP  
+            assign mix_in[i] = {  
+                state_shift[127 - 32*i -: 8],  
+                state_shift[119 - 32*i -: 8],  
+                state_shift[111 - 32*i -: 8],  
+                state_shift[103 - 32*i -: 8]  
+            };  
+            MixColumn MIX (.In_Array(mix_in[i]), .Out_Array(mix_out[i]));  
+        end  
+    endgenerate  
+    assign state_mix = {mix_out[0], mix_out[1], mix_out[2], mix_out[3]}; 
+// Key Addition  
+KeyAddition KA (.state_in(state_mix), .round_key(round_key_sel),  
+.state_out(state_add));  
+// Simulation Control  
+integer r;  
+initial begin  
+$display("AES Full Round Test");  
+rst_n = 0;  
+start = 0;  
+plaintext = 128'h00112233445566778899aabbccddeeff;  
+cipher_key = 128'h000102030405060708090a0b0c0d0e0f;  
+#15 rst_n = 1;  
+#10 start = 1;  
+#10 start = 0;  
+wait(done);  
+$display("Key expansion done.");  
+// Build round key 1 (for round 1)  
+round_key_sel = { KE.w[4], KE.w[5], KE.w[6], KE.w[7] };  
+#20;  
+$display("Round Input (Plaintext): %032x", plaintext);  
+$display("Round Key:               %032x", round_key_sel);  
+$display("After SubBytes:          %032x", state_sub);  
+$display("After ShiftRows:         %032x", state_shift);  
+$display("After MixColumns:        %032x", state_mix);  
+$display("After AddRoundKey:       %032x", state_add);  
+$finish;  
+end  
+endmodule 
