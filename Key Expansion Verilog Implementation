@@ -1,0 +1,110 @@
+module KeyExpansion( input wire clk, input wire rst_n, input wire start,  
+input wire [127:0] key_in, output reg done ); // 44 words storage  
+reg [31:0] w [0:43];  
+reg [5:0] i; // 0..43  
+// temp registers  
+reg [31:0] rotword_reg;     
+reg         
+rot_pending;     
+wait one cycle  
+reg [31:0] rcon_word;  
+// holds RotWord when we need to SubWord  
+// indicates we have driven sbox inputs and must  
+// parallel S-box outputs (combinational sBox assumed)  
+wire [7:0] sb0, sb1, sb2, sb3;  
+// sBox instances - inputs will be driven by rotword_reg bytes (combinational  
+wires)  
+sBox sb0_inst(.byteIn(rotword_reg[31:24]), .byteOut(sb0));  
+sBox sb1_inst(.byteIn(rotword_reg[23:16]), .byteOut(sb1));  
+sBox sb2_inst(.byteIn(rotword_reg[15:8 ]), .byteOut(sb2));  
+sBox sb3_inst(.byteIn(rotword_reg[7 :0 ]), .byteOut(sb3));  
+// rcon table  
+reg [31:0] Rcon [0:9];  
+initial begin  
+Rcon[0]=32'h01000000; Rcon[1]=32'h02000000; Rcon[2]=32'h04000000;  
+Rcon[3]=32'h08000000; Rcon[4]=32'h10000000; Rcon[5]=32'h20000000;  
+Rcon[6]=32'h40000000; Rcon[7]=32'h80000000; Rcon[8]=32'h1B000000;  
+Rcon[9]=32'h36000000;  
+end  
+// FSM states  
+parameter IDLE        
+COMPUTE     
+= 2'b00,  
+= 2'b01,  
+WAIT_SBOX  = 2'b10,  
+DONE_STATE = 2'b11;  
+reg [1:0] state;  
+// synchronous FSM  
+always @(posedge clk or negedge rst_n) begin  
+if (!rst_n) begin  
+state <= IDLE;  
+done  <= 1'b0;  
+i <= 6'd0;  
+rot_pending <= 1'b0;  
+rotword_reg <= 32'h0;  
+end else begin 
+case (state)  
+            IDLE: begin  
+                done <= 1'b0;  
+                if (start) begin  
+                    // load initial key words (non-blocking style)  
+                    w[0] <= key_in[127:96];  
+                    w[1] <= key_in[95:64];  
+                    w[2] <= key_in[63:32];  
+                    w[3] <= key_in[31:0];  
+                    i <= 6'd4;  
+                    rot_pending <= 1'b0;  
+                    state <= COMPUTE;  
+                end  
+            end  
+  
+            COMPUTE: begin  
+                if (i < 44) begin  
+                    // normal case: compute w[i]  
+                    if ((i % 4) == 0) begin  
+                        // need RotWord + SubWord + Rcon for this word:  
+                        // compute RotWord from w[i-1] and store into  
+rotword_reg  
+                        // rotate bytes of w[i-1]: {b0,b1,b2,b3} ->  
+{b1,b2,b3,b0}  
+                        rotword_reg <= { w[i-1][23:0], w[i-1][31:24] };  
+                        rot_pending <= 1'b1;  
+                        // keep i unchanged for one extra cycle - we'll  
+finish after WAIT_SBOX  
+                        state <= WAIT_SBOX;  
+                    end else begin  
+                        // simple case: w[i] = w[i-4] ^ w[i-1]  
+                        w[i] <= w[i-4] ^ w[i-1];  
+                        i <= i + 1;  
+                    end  
+                end else begin  
+                    // all words computed  
+                    state <= DONE_STATE;  
+                end  
+            end  
+  
+            WAIT_SBOX: begin  
+                // This cycle, sb0..sb3 are valid because rotword_reg was set 
+in previous clock  
+                // Form SubWord from S-box outputs and XOR with Rcon  
+                // Determine rcon index (i/4 - 1)  
+                rcon_word <= Rcon[(i/4) - 1];  
+                // assemble subword from parallel S-box outputs  
+                // Use a temporary variable assembled combinationally here:  
+                // Note: non-blocking assigns for w[i] to avoid read-after 
+write hazards  
+                w[i] <= w[i-4] ^ { sb0, sb1, sb2, sb3 } ^ Rcon[(i/4) - 1];  
+                rot_pending <= 1'b0;  
+                i <= i + 1; 
+        // return to compute next  
+                state <= COMPUTE;  
+            end 
+             DONE_STATE: begin  
+                done <= 1'b1;  
+            end  
+  
+        endcase  
+    end  
+end  
+   
+endmodule 
